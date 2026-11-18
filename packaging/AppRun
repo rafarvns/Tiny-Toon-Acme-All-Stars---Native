@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+TINYTOON_APPDIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+export TINYTOON_APPDIR
+export PYTHONHOME="$TINYTOON_APPDIR/usr"
+export PYTHONPATH="$TINYTOON_APPDIR/usr/lib/python3.11/site-packages"
+export PYTHONDONTWRITEBYTECODE=1
+exec "$TINYTOON_APPDIR/usr/bin/python3" "$TINYTOON_APPDIR/usr/share/tinytoon/launch.py" "$@"

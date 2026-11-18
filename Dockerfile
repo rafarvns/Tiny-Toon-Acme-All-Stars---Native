@@ -18,7 +18,7 @@
 # Build the image:   docker build -t tinytoon-build .
 # Use it:            ./build-docker.sh          (does both steps for you)
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS build
 
 ARG SDL_VER=3.4.14
 ARG SDL_SRC_SHA=30d4aa2b3037718142b32dffd4e72f917ebb6cc5227150e7bb9c45efb2153aeb
@@ -82,3 +82,58 @@ RUN curl -sL -o /tmp/sdl3.tar.gz \
  && rm -rf /tmp/sdl3 /tmp/b-linux /tmp/b-win /tmp/sdl3.tar.gz
 
 WORKDIR /work
+
+# Packaging tools are not needed for the ordinary native and Windows builds.
+FROM build AS appimage
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tcc file desktop-file-utils squashfs-tools binutils \
+ && printf '%s\n' \
+      'deb-src [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://deb.debian.org/debian bookworm main' \
+      'deb-src [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://deb.debian.org/debian bookworm-updates main' \
+      'deb-src [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://deb.debian.org/debian-security bookworm-security main' \
+      > /etc/apt/sources.list.d/tinytoon-source.list \
+ && apt-get update \
+ && mkdir -p /opt/tinytoon-sources/tcc \
+ && cd /opt/tinytoon-sources/tcc \
+ && apt-get source --download-only tcc
+
+# TinyCC does not emit GNU_STACK; modern glibc requires a non-executable stack.
+ARG PATCHELF_VER=0.19.3
+ARG PATCHELF_SHA=fac76a3c0b730e8d53ea1d10cd6015322d78c9900af91736f2cca51d5837b612
+RUN mkdir -p /opt/tinytoon-sources/patchelf /opt/tinytoon-licenses /tmp/patchelf \
+ && curl -fsSL -o /opt/tinytoon-sources/patchelf/source.tar.gz \
+      "https://github.com/NixOS/patchelf/releases/download/${PATCHELF_VER}/patchelf-${PATCHELF_VER}.tar.gz" \
+ && echo "${PATCHELF_SHA}  /opt/tinytoon-sources/patchelf/source.tar.gz" | sha256sum -c - \
+ && tar -xzf /opt/tinytoon-sources/patchelf/source.tar.gz -C /tmp/patchelf --strip-components=1 \
+ && cd /tmp/patchelf \
+ && ./configure --prefix=/usr/local \
+ && make -j"$(nproc)" \
+ && make install \
+ && cp COPYING /opt/tinytoon-licenses/patchelf.txt \
+ && rm -rf /tmp/patchelf
+
+ARG APPIMAGETOOL_SHA=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+RUN curl -fsSL -o /tmp/appimagetool.AppImage \
+      https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage \
+ && echo "${APPIMAGETOOL_SHA}  /tmp/appimagetool.AppImage" | sha256sum -c - \
+ && chmod +x /tmp/appimagetool.AppImage \
+ && cd /opt && /tmp/appimagetool.AppImage --appimage-extract \
+ && mv squashfs-root appimagetool \
+ && rm /tmp/appimagetool.AppImage
+
+# Pin the Type-2 runtime too: appimagetool otherwise downloads a moving target.
+RUN curl -fsSL -o /opt/appimage-runtime \
+      https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64 \
+ && echo '2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d  /opt/appimage-runtime' | sha256sum -c - \
+ && curl -fsSL -o /opt/tinytoon-runtime-license \
+      https://raw.githubusercontent.com/AppImage/type2-runtime/20251108/LICENSE
+
+RUN curl -fsSL -o /tmp/sdl3.tar.gz \
+      "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VER}/SDL3-${SDL_VER}.tar.gz" \
+ && echo "${SDL_SRC_SHA}  /tmp/sdl3.tar.gz" | sha256sum -c - \
+ && mkdir -p /opt/tinytoon-licenses \
+ && tar -xOf /tmp/sdl3.tar.gz "SDL3-${SDL_VER}/LICENSE.txt" > /opt/tinytoon-licenses/SDL3.txt \
+ && rm /tmp/sdl3.tar.gz
+
+# Keep the default target identical to the ordinary build image.
+FROM build AS default

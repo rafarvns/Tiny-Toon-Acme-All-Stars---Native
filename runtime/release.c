@@ -113,6 +113,83 @@ const char *release_achar_rom(const char *argumento) {
     return caminho_rom;
 }
 
+#elif defined(TINYTOON_RELEASE) && defined(__linux__)
+
+#include <SDL3/SDL.h>
+#include <sys/stat.h>
+
+static char *caminho_rom;
+static SDL_AtomicInt dialog_done;
+
+int release_ativo(void) { return 1; }
+const char *release_dir_mods(void) { return "mods"; }
+
+void release_iniciar(void) {
+    FILE *log = fopen("tinytoon.log", "w");
+    if (log) {
+        fclose(log);
+        if (freopen("tinytoon.log", "a", stdout))
+            setvbuf(stdout, NULL, _IOLBF, 4096);
+        if (freopen("tinytoon.log", "a", stderr))
+            setvbuf(stderr, NULL, _IOLBF, 4096);
+    }
+}
+
+void release_erro(const char *titulo, const char *corpo) {
+    fprintf(stderr, "\n*** %s ***\n%s\n", titulo, corpo);
+    fflush(stderr);
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, titulo, corpo, NULL);
+}
+
+static int existe(const char *p) {
+    struct stat st;
+    return stat(p, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static void SDLCALL rom_selecionada(void *userdata, const char * const *files,
+                                    int filter) {
+    (void)userdata;
+    (void)filter;
+    if (files && files[0] && files[0][0]) caminho_rom = SDL_strdup(files[0]);
+    if (!files) fprintf(stderr, "ROM file dialog failed: %s\n", SDL_GetError());
+    SDL_SetAtomicInt(&dialog_done, 1);
+}
+
+const char *release_achar_rom(const char *argumento) {
+    if (argumento) return argumento;
+    if (existe("rom.bin")) return "rom.bin";
+
+    const char *lembrado = config_texto("rom");
+    if (lembrado && *lembrado && existe(lembrado)) return lembrado;
+
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+        release_erro("Could not open the ROM picker", SDL_GetError());
+        return NULL;
+    }
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION,
+        "Tiny Toon Adventures: ACME All-Stars",
+        "This program needs your own ROM of Tiny Toon Adventures: ACME "
+        "All-Stars (Europe) to run.\n\n"
+        "The copyrighted ROM is not included. Select your own dump in the "
+        "next window; its path will be remembered.", NULL);
+    static const SDL_DialogFileFilter filtros[] = {
+        { "Mega Drive ROM", "bin;md;gen" },
+        { "All files", "*" },
+    };
+    SDL_SetAtomicInt(&dialog_done, 0);
+    SDL_ShowOpenFileDialog(rom_selecionada, NULL, NULL, filtros,
+                           SDL_arraysize(filtros), NULL, false);
+    while (!SDL_GetAtomicInt(&dialog_done)) {
+        SDL_PumpEvents();
+        SDL_Delay(10);
+    }
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    if (!caminho_rom) return NULL;
+    if (config_gravar_texto("rom", caminho_rom) != 0)
+        fprintf(stderr, "Could not save the ROM path in %s\n", CONFIG_ARQUIVO);
+    return caminho_rom;
+}
+
 #else
 
 int release_ativo(void) { return 0; }

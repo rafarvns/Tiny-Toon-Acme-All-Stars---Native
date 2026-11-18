@@ -3,14 +3,17 @@
 Two paths. Docker needs nothing installed but Docker and works the same
 everywhere. Native is faster to iterate on but you install the toolchain.
 
-Both end at the same place: a native executable, built from your ROM, on your
-machine.
+Ordinary builds produce a native executable from your ROM on your machine.
+The separate AppImage mode packages only the runtime and tools, without a ROM;
+the player supplies their own ROM at first launch.
 
 ---
 
-## The one thing that is not optional
+## Your ROM
 
-Your own 1 MB raw `.bin` dump of the game. See [LEGAL.md](LEGAL.md).
+Playing the game, and building a monolithic executable, require your own 1 MB
+raw `.bin` dump. See [LEGAL.md](LEGAL.md). Packaging the ROM-free AppImage does
+not require a dump.
 
 Put it next to the build script as `rom.bin`, or pass its path as the first
 argument. The build verifies it before doing anything else and tells you exactly
@@ -23,7 +26,7 @@ what is wrong if something is:
 | not a Mega Drive ROM | no `SEGA MEGA DRIVE` marker at `$100` |
 | a different game | valid Mega Drive ROM, wrong title |
 | checksum does not match | the file is damaged or was modified |
-| different revision | right game, different build — **it will still run**, with both SHA-1s in the log |
+| different revision | development builds may run it with both SHA-1s logged; distributed builds require the exact European revision |
 
 ---
 
@@ -36,14 +39,70 @@ what is wrong if something is:
 ./build-docker.sh linux /path/to/rom.bin
 ```
 
-The image is built on first use. That build compiles SDL3 from source for both
-targets and takes roughly ten minutes; every run afterwards takes seconds.
+Docker checks the build definition on every invocation and reuses cached layers.
+The first build compiles SDL3 from source for both targets and takes roughly ten
+minutes; subsequent builds reuse that toolchain.
 
 Your ROM is mounted **read-only** at a fixed path and never enters the image.
 The container runs as your user, so the artifacts come out owned by you rather
 than by root.
 
 To rebuild the image from scratch: `docker rmi tinytoon-build`.
+
+### Linux AppImage
+
+```bash
+./build-docker.sh linux --appimage
+# Optional release filename:
+./build-docker.sh linux --appimage --version v1.1.0
+```
+
+No ROM is mounted or required in this mode. It builds a runtime-only release
+with `RUNTIME_ONLY=1`, then produces
+`build/release/TinyToon-<version>-Linux-x64.AppImage`. The ordinary Linux and
+Windows commands above still build monolithic executables from your ROM; those
+contain ROM-derived game code and must not be published.
+
+The AppImage bundles SDL3, Python 3.11, Capstone 5.0.7 and TinyCC, including the
+headers needed to compile the game without a host toolchain. The packaging
+image is separate (`tinytoon-appimage-build`). AppImage tools and their Type-2
+runtime are pinned by checksum. Matching Debian source archives and third-party
+license notices are included in `sources/` and `LICENSES/` inside the image;
+packaging needs network access to retrieve the corresponding sources.
+
+Bundled ELF files find their libraries through relative RPATHs, not a global
+`LD_LIBRARY_PATH` that could break host helpers such as `/bin/sh`. TinyCC also
+carries glibc's dynamic linker as a link input; generated modules still load the
+host's glibc at runtime.
+Bundled PatchELF 0.19.3 marks each generated module with a non-executable stack,
+as required by modern glibc. Its source and license are included with the image.
+
+The target is Linux x86_64 with glibc 2.36 or newer. Desktop graphics/audio
+libraries and drivers come from the host. The first-run ROM picker uses the
+desktop portal or Zenity. The image can run without FUSE:
+
+```bash
+./TinyToon-v1.1.0-Linux-x64.AppImage --appimage-extract-and-run --help
+```
+
+Normally, run the image with no arguments to select and remember a ROM, or pass
+its path as the first argument. Data is written outside the image in
+`${XDG_DATA_HOME:-$HOME/.local/share}/tinytoon`. `--data-dir DIR` selects another
+writable directory for `tinytoon.toml`, `tinytoon.log`, `mods/` and `jogo.so`.
+Changing the bundled builder invalidates the old local module; the next launch
+rebuilds it from the player's ROM.
+
+For unattended setup, use:
+
+```bash
+./TinyToon-v1.1.0-Linux-x64.AppImage --prepare --rom /path/to/rom.bin --saida /path/to/data
+./TinyToon-v1.1.0-Linux-x64.AppImage --data-dir /path/to/data /path/to/rom.bin
+```
+
+The embedded `recomplauncher.json` uses those two modes with `{install}` as the
+data directory. It works from both a mounted AppImage and an extracted AppDir,
+including the RecompLauncher Flatpak's extraction path. Preparation keeps the
+existing progress output and ROM error codes.
 
 ---
 

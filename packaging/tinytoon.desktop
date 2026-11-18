@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Tiny Toon AAA
+Comment=Play your own Tiny Toon Adventures: ACME All-Stars ROM
+Exec=AppRun
+Icon=tinytoon
+Categories=Game;
+Terminal=false

@@ -14,6 +14,13 @@
 #define RECOMP_REFERENCIA "montador\\recomp.sha256"
 #else
 #include <dlfcn.h>
+#if defined(__linux__)
+#include <errno.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 #define JOGO_ARQUIVO "./jogo.so"
 #define RECOMP_REFERENCIA "montador/recomp.sha256"
 #endif
@@ -41,6 +48,20 @@ static void *abrir(void) {
 }
 #endif
 
+#if defined(__linux__)
+static char *appdir_path(const char *suffix) {
+    const char *root = getenv("TINYTOON_APPDIR");
+    if (!root || root[0] != '/') return NULL;
+    size_t root_len = strlen(root), suffix_len = strlen(suffix);
+    if (root_len > SIZE_MAX - suffix_len - 1) return NULL;
+    char *path = malloc(root_len + suffix_len + 1);
+    if (!path) return NULL;
+    memcpy(path, root, root_len);
+    memcpy(path + root_len, suffix, suffix_len + 1);
+    return path;
+}
+#endif
+
 /* 0 = carregado e da ROM certa; -1 = ausente ou ilegivel; -2 = de outra ROM
  * ou outra versao da fronteira (precisa remontar). */
 static int tentar(const char *rom_sha1, JogoExporta *saida) {
@@ -63,7 +84,17 @@ static int tentar(const char *rom_sha1, JogoExporta *saida) {
      * mude o recompilador, ele difere do que a DLL guardou: remontar. Sem o
      * arquivo (desenvolvimento, montagem a mao) nao ha' o que comparar. */
     char atual[80] = "";
+#if defined(__linux__)
+    const char *appdir = getenv("TINYTOON_APPDIR");
+    char *referencia = appdir && *appdir
+        ? appdir_path("/montador/recomp.sha256") : NULL;
+    FILE *f = appdir && *appdir
+        ? (referencia ? fopen(referencia, "r") : NULL)
+        : fopen(RECOMP_REFERENCIA, "r");
+    free(referencia);
+#else
     FILE *f = fopen(RECOMP_REFERENCIA, "r");
+#endif
     if (f) {
         if (fscanf(f, "%64s", atual) != 1) atual[0] = 0;
         fclose(f);
@@ -110,6 +141,44 @@ static int montar(const char *caminho_rom) {
     printf("montador terminou com codigo %lu\n", (unsigned long)codigo);
     return codigo == 0 ? 0 : -1;
 }
+#elif defined(__linux__) && defined(TINYTOON_RELEASE)
+static int montar(const char *caminho_rom) {
+    char *apprun = appdir_path("/AppRun");
+    if (!apprun) {
+        fprintf(stderr, "Cannot find AppRun: TINYTOON_APPDIR must be absolute.\n");
+        return -1;
+    }
+    fflush(NULL);
+    pid_t pid = fork();
+    if (pid == 0) {
+        execl(apprun, apprun, "--prepare", "--rom", caminho_rom,
+              "--saida", ".", (char *)NULL);
+        fprintf(stderr, "Could not start AppRun: %s\n", strerror(errno));
+        _exit(127);
+    }
+    free(apprun);
+    if (pid < 0) {
+        fprintf(stderr, "Could not start builder: %s\n", strerror(errno));
+        return -1;
+    }
+    int status;
+    pid_t result;
+    do {
+        result = waitpid(pid, &status, 0);
+    } while (result < 0 && errno == EINTR);
+    if (result < 0) {
+        fprintf(stderr, "Could not wait for builder: %s\n", strerror(errno));
+        return -1;
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        fprintf(stderr, "Builder failed");
+        if (WIFEXITED(status)) fprintf(stderr, " with exit code %d", WEXITSTATUS(status));
+        else if (WIFSIGNALED(status)) fprintf(stderr, " with signal %d", WTERMSIG(status));
+        fprintf(stderr, ".\n");
+        return -1;
+    }
+    return 0;
+}
 #else
 static int montar(const char *caminho_rom) {
     printf("monte o jogo com: python tools/montar_jogo.py --rom \"%s\" --saida .\n",
@@ -129,15 +198,25 @@ int jogo_preparar(const char *caminho_rom, const char *rom_sha1,
         release_erro("Could not build the game",
             "The game is built from your own ROM the first time it runs, and "
             "that step failed.\n\n"
+#ifdef _WIN32
             "The console window that opened says why. If it closed, run the "
             "program again; tinytoon.log has the details.");
+#else
+            "See tinytoon.log or the terminal output for details.");
+#endif
         return SAIDA_JOGO_NAO_MONTADO;
     }
     r = tentar(rom_sha1, saida);
     if (r == 0) { printf("jogo: %s montado e carregado\n", JOGO_ARQUIVO); return 0; }
+#ifdef _WIN32
     release_erro("Could not load the game",
         "The game was built but could not be loaded. Delete jogo.dll next to "
         "the program and run it again.");
+#else
+    release_erro("Could not load the game",
+        "The game was built but could not be loaded. Delete jogo.so from the "
+        "data directory and run it again.");
+#endif
     return SAIDA_JOGO_INVALIDO;
 }
 

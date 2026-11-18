@@ -19,7 +19,11 @@
 CC      ?= cc
 WINDRES ?= windres
 OS      ?= $(shell uname -s 2>/dev/null || echo Windows)
+ifeq ($(RUNTIME_ONLY),1)
+BUILD   ?= build/appimage-runtime
+else
 BUILD   ?= build
+endif
 OBJDIR  ?= $(BUILD)/obj
 RECOMP  ?= $(BUILD)/recomp
 OUT     ?= $(BUILD)/tinytoon
@@ -32,6 +36,9 @@ OUT     ?= $(BUILD)/tinytoon
 # binary — the worst kind of failure, because the compiler never complains.
 CFLAGS  ?= -std=c99 -O2 -MMD -MP
 CFLAGS  += -DTINYTOON_SDL -Iruntime
+ifeq ($(RUNTIME_ONLY),1)
+CFLAGS  += -DTINYTOON_JOGO_DLL
+endif
 
 LDFLAGS ?=
 LIBS    ?= -lm
@@ -72,6 +79,9 @@ else ifeq ($(OS),Linux)
     # -rdynamic keeps the symbol names visible to backtrace(), which is what
     # turns a crash into a stack trace in the game's own function names.
     LDFLAGS += -rdynamic
+    ifeq ($(RUNTIME_ONLY),1)
+        LIBS += -ldl
+    endif
     RES :=
 else
     RES :=
@@ -86,7 +96,11 @@ endif
 # YM2612, so they must stay out too; they live in runtime/testes/.
 RUNTIME_SRCS := $(filter-out runtime/ym2612_nuked.c runtime/ym3438.c runtime/ponte_jogo.c, \
                              $(wildcard runtime/*.c))
-RECOMP_SRCS  := $(wildcard $(RECOMP)/*.c)
+ifeq ($(RUNTIME_ONLY),1)
+RECOMP_SRCS :=
+else
+RECOMP_SRCS := $(wildcard $(RECOMP)/*.c)
+endif
 SRCS         := $(RUNTIME_SRCS) $(RECOMP_SRCS)
 OBJS         := $(patsubst %.c,$(OBJDIR)/%.o,$(SRCS))
 

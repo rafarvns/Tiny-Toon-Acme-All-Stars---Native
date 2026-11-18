@@ -111,9 +111,44 @@ changes exists nowhere else, and nothing reported about it is reproducible.
 build/win/tinytoon.exe    4,841,984 bytes, GUI subsystem, icon, no DLL
 ```
 
-Keep the ROM out of whatever you distribute. It is easy to leave one beside the
-executable for testing and then zip the whole folder to send to somebody, which
-would be redistributing copyrighted data without noticing.
+The commands above build a monolithic executable locally from your ROM. Both
+the ROM and that executable contain game material and must stay out of public
+release packages. The distributable Linux path below instead builds only the
+hand-written runtime.
+
+## Distributable Linux AppImage
+
+```bash
+./build-docker.sh linux --appimage --version v1.1.0
+```
+
+This produces `build/release/TinyToon-v1.1.0-Linux-x64.AppImage` without reading a
+ROM. A fresh AppDir is assembled from explicit lists of hand-written runtime and
+builder files. Packaging rejects ROM filenames, generated-C markers and ELF
+files exporting the game module entry point, including renamed modules.
+
+The image carries Python/Capstone and TinyCC with its headers and link inputs.
+At first launch the Linux runtime selects the player's ROM, then invokes
+`AppRun --prepare --rom PATH --saida DIR` without a shell. The existing assembler
+generates `jogo.so` on that machine. Runtime and ROM diagnostics remain separate
+from packaging; no game code is embedded in the release.
+
+`AppRun` finds resources relative to itself, not the current directory or an
+AppImage mount name. The launcher chooses a writable data directory before
+starting the runtime. Standalone use follows `XDG_DATA_HOME`; the embedded
+RecompLauncher profile passes `{install}` for setup, settings and launch.
+An extracted AppDir uses the same entry point.
+
+ROM-free builds cannot provide a hash of verified, ROM-derived C. The existing
+optional `recomp.sha256` mechanism is unchanged. The AppImage separately records
+the identity of its shipped builder, headers and toolchain in `builder.sha256`;
+the locally written `.builder-id` causes an outdated `jogo.so` to be rebuilt
+after an update. This is cache invalidation, not a claim of verified game output.
+
+The runtime baseline is x86_64 glibc 2.36. Graphics/audio libraries and drivers
+remain host-provided. Third-party notices and matching Debian source packages
+travel inside the image. AppImage assembly and extraction work without FUSE;
+see [BUILDING.md](../BUILDING.md#linux-appimage) for command-line examples.
 
 ## What is still missing
 
@@ -121,6 +156,3 @@ would be redistributing copyrighted data without noticing.
   certificate costs money and is the publisher's decision.
 - **An installer.** Today it is a loose file, which is the right format for a
   port that needs the ROM beside it.
-- **Linux and Steam Deck packaging.** The runtime already compiles on Linux;
-  what is missing is the equivalent packaging work — an AppImage would be the
-  single-file equivalent.

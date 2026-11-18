@@ -102,6 +102,30 @@ ROM and it builds the game during setup, with the picture, fullscreen, window
 size and player swap settings on the game's page. The integration is described
 in [`recomplauncher.json`](recomplauncher.json).
 
+## Linux AppImage
+
+Build a distributable Linux x86_64 AppImage with Docker, **without a ROM**:
+
+```bash
+./build-docker.sh linux --appimage
+```
+
+The result is `build/release/TinyToon-<version>-Linux-x64.AppImage`. It contains
+the runtime, SDL3, Python/Capstone and TinyCC, not the game. On first launch,
+select your own European cartridge ROM; the bundled tools build `jogo.so`
+locally. You can also pass the ROM as the first argument. No compiler or Python
+installation is needed on the player's machine.
+
+Requires x86_64 Linux with glibc 2.36 or newer and desktop graphics/audio
+libraries. ROM selection uses the desktop file portal or Zenity. If FUSE is
+unavailable, run the image with `--appimage-extract-and-run`.
+
+Configuration, logs, mods and the generated game go in
+`${XDG_DATA_HOME:-$HOME/.local/share}/tinytoon`, outside the read-only image.
+RecompLauncher uses its installation directory instead; the AppImage embeds its
+own Linux manifest. See [BUILDING.md](BUILDING.md#linux-appimage) for packaging
+and command-line options.
+
 ---
 
 ## Quick start
